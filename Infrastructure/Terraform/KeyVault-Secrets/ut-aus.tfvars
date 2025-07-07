@@ -1,0 +1,3 @@
+region = "aus"
+
+environment = "ut"
