@@ -1,0 +1,374 @@
+trigger:
+  branches:
+    include:
+    - develop
+    - feature/*
+  paths:
+    include:
+    - Azure/APIM/API/terraform/MAS.SAP
+    exclude:
+    - Azure/APIM/API/terraform/Pipeline
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+resources:
+  repositories:
+    - repository: DevOps
+      type: GitHub
+      name: 'KiwirailAzureIntegration/DevOps.Pipelines.Common'
+      endpoint: 'GitHub - NikolaiBlackieKiwirail'
+      ref: 'refs/heads/integrationteamonly'
+
+variables:
+- template: Validation\validation-condition-variables.yaml@DevOps
+- name: TerraformVersion 
+  value: 1.7.5
+- name: TerraformStateFileName
+  value: IntegrationFrontEnd.APIM.API.MAS.SAP.terraform.tfstate
+- name: TerraformWorkingDirectory
+  value: '$(System.DefaultWorkingDirectory)/IntegrationFrontEnd.APIM.API.MAS.SAP/Azure/APIM/API/terraform/MAS.SAP'
+- name: TerraformEnvironmentVariableName
+  value: '$(Environment.Name).tfvars'
+
+stages: 
+  - stage: DvDeploy
+    displayName: 'Deploy to dv'
+    jobs:
+    - deployment: 'dv'
+      variables:
+      - group: Azure.IntegrationShared.KV.DV
+      - group: Azure.IntegrationShared.NONPROD
+      - group: Azure.IntegrationShared.Terraform.DV
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.API Components to resource group on dv' 
+      environment: 'dv'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - checkout: 'DevOps'
+              path: 'KiwiRail.DevOps'
+
+            - task: AzureCLI@2
+              displayName: 'Azure CLI - Retrieve Workflow URL Signatures'
+              inputs:
+                azureSubscription: 'Integration-DevOps-SP-NONPROD'
+                scriptType: 'pscore'
+                scriptLocation: 'scriptPath'
+                scriptPath: '$(Pipeline.Workspace)/KiwiRail.DevOps/Scripts/deploy-logicapp-geturlsignature.ps1'
+                arguments: '-SubscriptionId "$(subscriptionId)" -ResourceGroupName "$(Environment.Name)-aue-integrationbackend-rg" -LogicAppName "$(Environment.Name)-aue-integration-mas-sap-logic" -IsTerraform'
+                failOnStandardError: true
+
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-NONPROD'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+                terraformCustomCommands: -var ws-mas-sap-workorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-workorder-wf-signature) -var ws-mas-sap-purchaseorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-purchaseorder-wf-signature) -var ws-mas-sap-reservations-wf-urlsignature=$(TF_VAR_ws-mas-sap-reservations-wf-signature)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+
+  - stage: TsDeploy
+    displayName: 'Deploy to ts'
+    condition: ${{ variables.tsCondition }}
+    jobs:
+    - deployment: 'ts'
+      variables:
+      - group: Azure.IntegrationShared.KV.TS
+      - group: Azure.IntegrationShared.NONPROD
+      - group: Azure.IntegrationShared.Terraform.TS
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.API Components to resource group on ts' 
+      environment: 'ts'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - checkout: 'DevOps'
+              path: 'KiwiRail.DevOps'
+
+            - task: AzureCLI@2
+              displayName: 'Azure CLI - Retrieve Workflow URL Signatures'
+              inputs:
+                azureSubscription: 'Integration-DevOps-SP-NONPROD'
+                scriptType: 'pscore'
+                scriptLocation: 'scriptPath'
+                scriptPath: '$(Pipeline.Workspace)/KiwiRail.DevOps/Scripts/deploy-logicapp-geturlsignature.ps1'
+                arguments: '-SubscriptionId "$(subscriptionId)" -ResourceGroupName "$(Environment.Name)-aue-integrationbackend-rg" -LogicAppName "$(Environment.Name)-aue-integration-mas-sap-logic" -IsTerraform'
+                failOnStandardError: true
+
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-NONPROD'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+                terraformCustomCommands: -var ws-mas-sap-workorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-workorder-wf-signature) -var ws-mas-sap-purchaseorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-purchaseorder-wf-signature) -var ws-mas-sap-reservations-wf-urlsignature=$(TF_VAR_ws-mas-sap-reservations-wf-signature)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+
+  - stage: Ut_AUE_Deploy
+    displayName: 'Deploy to ut australia east'
+    condition: ${{ variables.utCondition }}
+    jobs:
+    - deployment: 'ut_aue'
+      variables:
+      - group: Azure.IntegrationShared.KV.AUE.UT
+      - group: Azure.IntegrationShared.AUE.PROD
+      - group: Azure.IntegrationShared.Terraform.AUE.UT
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.API Components to resource group on ut-aue' 
+      environment: 'ut-aue'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - checkout: 'DevOps'
+              path: 'KiwiRail.DevOps'
+
+            - task: AzureCLI@2
+              displayName: 'Azure CLI - Retrieve Workflow URL Signatures'
+              inputs:
+                azureSubscription: 'Integration-DevOps-SP-UAT'
+                scriptType: 'pscore'
+                scriptLocation: 'scriptPath'
+                scriptPath: '$(Pipeline.Workspace)/KiwiRail.DevOps/Scripts/deploy-logicapp-geturlsignature.ps1'
+                arguments: '-SubscriptionId "$(subscriptionId)" -ResourceGroupName "$(Environment.Name)-integrationbackend-rg" -LogicAppName "$(Environment.Name)-integration-mas-sap-logic" -IsTerraform'
+                failOnStandardError: true
+
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-UAT'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-UAT-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-UAT-ClientSecret)
+                terraformCustomCommands: -var ws-mas-sap-workorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-workorder-wf-signature) -var ws-mas-sap-purchaseorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-purchaseorder-wf-signature) -var ws-mas-sap-reservations-wf-urlsignature=$(TF_VAR_ws-mas-sap-reservations-wf-signature)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-UAT-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-UAT-ClientSecret)
+
+  - stage: Ut_AUS_Deploy
+    displayName: 'Deploy to ut australia south east'
+    condition: ${{ variables.utCondition }}
+    jobs:
+    - deployment: 'ut_aus'
+      variables:
+      - group: Azure.IntegrationShared.KV.AUS.UT
+      - group: Azure.IntegrationShared.AUS.PROD
+      - group: Azure.IntegrationShared.Terraform.AUS.UT
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.API Components to resource group on ut-aus' 
+      environment: 'ut-aus'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - checkout: 'DevOps'
+              path: 'KiwiRail.DevOps'
+
+            - task: AzureCLI@2
+              displayName: 'Azure CLI - Retrieve Workflow URL Signatures'
+              inputs:
+                azureSubscription: 'Integration-DevOps-SP-UAT'
+                scriptType: 'pscore'
+                scriptLocation: 'scriptPath'
+                scriptPath: '$(Pipeline.Workspace)/KiwiRail.DevOps/Scripts/deploy-logicapp-geturlsignature.ps1'
+                arguments: '-SubscriptionId "$(subscriptionId)" -ResourceGroupName "$(Environment.Name)-integrationbackend-rg" -LogicAppName "$(Environment.Name)-integration-mas-sap-logic" -IsTerraform'
+                failOnStandardError: true
+
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-UAT'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-UAT-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-UAT-ClientSecret)
+                terraformCustomCommands: -var ws-mas-sap-workorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-workorder-wf-signature) -var ws-mas-sap-purchaseorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-purchaseorder-wf-signature) -var ws-mas-sap-reservations-wf-urlsignature=$(TF_VAR_ws-mas-sap-reservations-wf-signature)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-UAT-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-UAT-ClientSecret)
+
+  - stage: Pd_AUE_Deploy
+    displayName: 'Deploy to pd australia east'
+    condition: ${{ variables.pdCondition }}
+    jobs:
+    - deployment: 'pd_aue'
+      variables:
+      - group: Azure.IntegrationShared.KV.AUE.PD
+      - group: Azure.IntegrationShared.AUE.PROD
+      - group: Azure.IntegrationShared.Terraform.AUE.PD
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.API Components to resource group on pd-aue' 
+      environment: 'pd-aue'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - checkout: 'DevOps'
+              path: 'KiwiRail.DevOps'
+
+            - task: AzureCLI@2
+              displayName: 'Azure CLI - Retrieve Workflow URL Signatures'
+              inputs:
+                azureSubscription: 'Integration-DevOps-SP-PROD'
+                scriptType: 'pscore'
+                scriptLocation: 'scriptPath'
+                scriptPath: '$(Pipeline.Workspace)/KiwiRail.DevOps/Scripts/deploy-logicapp-geturlsignature.ps1'
+                arguments: '-SubscriptionId "$(subscriptionId)" -ResourceGroupName "$(Environment.Name)-integrationbackend-rg" -LogicAppName "$(Environment.Name)-integration-mas-sap-logic" -IsTerraform'
+                failOnStandardError: true
+
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-PROD'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-PROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-PROD-ClientSecret)
+                terraformCustomCommands: -var ws-mas-sap-workorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-workorder-wf-signature) -var ws-mas-sap-purchaseorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-purchaseorder-wf-signature) -var ws-mas-sap-reservations-wf-urlsignature=$(TF_VAR_ws-mas-sap-reservations-wf-signature)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-PROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-PROD-ClientSecret)
+
+  - stage: Pd_AUS_Deploy
+    displayName: 'Deploy to pd australia south east'
+    condition: ${{ variables.pdCondition }}
+    jobs:
+    - deployment: 'pd_aus'
+      variables:
+      - group: Azure.IntegrationShared.KV.AUS.PD
+      - group: Azure.IntegrationShared.AUS.PROD
+      - group: Azure.IntegrationShared.Terraform.AUS.PD
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.API Components to resource group on pd-aus' 
+      environment: 'pd-aus'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - checkout: 'DevOps'
+              path: 'KiwiRail.DevOps'
+
+            - task: AzureCLI@2
+              displayName: 'Azure CLI - Retrieve Workflow URL Signatures'
+              inputs:
+                azureSubscription: 'Integration-DevOps-SP-PROD'
+                scriptType: 'pscore'
+                scriptLocation: 'scriptPath'
+                scriptPath: '$(Pipeline.Workspace)/KiwiRail.DevOps/Scripts/deploy-logicapp-geturlsignature.ps1'
+                arguments: '-SubscriptionId "$(subscriptionId)" -ResourceGroupName "$(Environment.Name)-integrationbackend-rg" -LogicAppName "$(Environment.Name)-integration-mas-sap-logic" -IsTerraform'
+                failOnStandardError: true
+
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-PROD'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-PROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-PROD-ClientSecret)
+                terraformCustomCommands: -var ws-mas-sap-workorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-workorder-wf-signature) -var ws-mas-sap-purchaseorder-wf-urlsignature=$(TF_VAR_ws-mas-sap-purchaseorder-wf-signature) -var ws-mas-sap-reservations-wf-urlsignature=$(TF_VAR_ws-mas-sap-reservations-wf-signature)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-PROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-PROD-ClientSecret)

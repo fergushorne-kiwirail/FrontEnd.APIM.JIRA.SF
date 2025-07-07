@@ -1,0 +1,212 @@
+trigger:
+  branches:
+    include:
+    - develop
+    - feature/*
+  paths:
+    include:
+    - Infrastructure/Terraform/AppRegistration/BackendApp
+    exclude:
+    - Infrastructure/Pipeline
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+resources:
+  repositories:
+    - repository: DevOps
+      type: GitHub
+      name: 'KiwirailAzureIntegration/DevOps.Pipelines.Common'
+      endpoint: 'GitHub - NikolaiBlackieKiwirail'
+      ref: 'refs/heads/main'
+
+variables:
+- template: Validation\validation-condition-variables.yaml@DevOps
+- name: TerraformVersion 
+  value: 1.0.10
+- name: TerraformStateFileName
+  value: IntegrationFrontEnd.APIM.API.MAS.SAP.AppRegistration.BackendApp.tfstate
+- name: TerraformWorkingDirectory
+  value: '$(System.DefaultWorkingDirectory)/Infrastructure/Terraform/AppRegistration/BackendApp'
+- name: TerraformEnvironmentVariableName
+  value: '$(Environment.Name).tfvars'
+
+stages: 
+  - stage: DvDeploy
+    displayName: 'Deploy to dv'
+    jobs:
+    - deployment: 'dv'
+      variables:
+      - group: Azure.IntegrationShared.KV.DV
+      - group: Azure.IntegrationShared.NONPROD
+      - group: Azure.IntegrationShared.Terraform.DV
+      - group: Azure.IntegrationShared.AAD.AppRegistration.Owners.DV
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.AppRegistration.BackendApp to resource group on dv' 
+      environment: 'dv'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-NONPROD'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                terraformCustomCommands: -var 'azuread_application_owners=$(Azuread.Application.Owners)'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+
+  - stage: TsDeploy
+    displayName: 'Deploy to ts'
+    condition: ${{ variables.tsCondition }}
+    jobs:
+    - deployment: 'ts'
+      variables:
+      - group: Azure.IntegrationShared.KV.TS
+      - group: Azure.IntegrationShared.NONPROD
+      - group: Azure.IntegrationShared.Terraform.TS
+      - group: Azure.IntegrationShared.AAD.AppRegistration.Owners.TS
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.AppRegistration.BackendApp to resource group on ts' 
+      environment: 'ts'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-NONPROD'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                terraformCustomCommands: -var 'azuread_application_owners=$(Azuread.Application.Owners)'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-NONPROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-NONPROD-ClientSecret)
+
+  - stage: Ut_Deploy
+    displayName: 'Deploy to ut'
+    condition: ${{ variables.utCondition }}
+    jobs:
+    - deployment: 'ut'
+      variables:
+      - group: Azure.IntegrationShared.KV.AUE.UT
+      - group: Azure.IntegrationShared.AUE.PROD
+      - group: Azure.IntegrationShared.Terraform.AUE.UT
+      - group: Azure.IntegrationShared.AAD.AppRegistration.Owners.UT
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.AppRegistration.BackendApp to resource group on ut' 
+      environment: 'ut'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-UAT'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                terraformCustomCommands: -var 'azuread_application_owners=$(Azuread.Application.Owners)'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-UAT-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-UAT-ClientSecret)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-UAT-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-UAT-ClientSecret)
+
+  - stage: Pd_Deploy
+    displayName: 'Deploy to pd'
+    condition: ${{ variables.pdCondition }}
+    jobs:
+    - deployment: 'pd'
+      variables:
+      - group: Azure.IntegrationShared.KV.AUE.PD
+      - group: Azure.IntegrationShared.AUE.PROD
+      - group: Azure.IntegrationShared.Terraform.AUE.PD
+      - group: Azure.IntegrationShared.AAD.AppRegistration.Owners.PD
+      displayName: 'Deploy IntegrationFrontEnd.APIM.API.MAS.SAP.AppRegistration.BackendApp to resource group on pd' 
+      environment: 'pd'
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+            - checkout: self
+            - template: Deploy\deploy-terraform-init.yaml@DevOps
+              parameters:
+                terraformVersion: ${{ variables.TerraformVersion }}
+                terraformBackendStorageAccountResourceGroupName: '$(TerraformBackendResourceGroup)'
+                terraformBackendStorageAccountName: '$(TerraformBackendStorageAccount)'
+                terraformBackendBlobContainerName: '$(TerraformBackendContainer)'
+                terraformBackendStateFileName: ${{ variables.TerraformStateFileName }}
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureDevopsConnectionName: 'Integration-DevOps-SP-PROD'
+
+            - template: Deploy\deploy-terraform-plan.yaml@DevOps
+              parameters:
+                terraformEnvironmentVariableFileName: '${{ variables.TerraformEnvironmentVariableName }}'
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                terraformCustomCommands: -var 'azuread_application_owners=$(Azuread.Application.Owners)'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-PROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-PROD-ClientSecret)
+
+            - template: Deploy\deploy-terraform-apply.yaml@DevOps
+              parameters:
+                terraformWorkingDirectory: '${{ variables.TerraformWorkingDirectory }}'
+                azureSubscription: $(subscriptionId)
+                azureTenantId: $(tenantId)
+                azureServicePrincipalClientId: $(Integration-DevOps-SP-PROD-ClientId)
+                azureServicePrincipalSecret: $(Integration-DevOps-SP-PROD-ClientSecret)
